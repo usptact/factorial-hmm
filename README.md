@@ -1,3 +1,5 @@
+# *WARNING*: This code has been generated using AI and likely contains bugs!
+
 # Factorial Hidden Markov Model (FHMM) Variants
 
 This project implements two approaches to Factorial Hidden Markov Models for modeling time series data as a sum of multiple independent Markov chains.
