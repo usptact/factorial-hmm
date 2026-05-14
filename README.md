@@ -12,11 +12,11 @@ where $x_k(t) \in \{0, \ldots, S-1\}$ is the hidden state of chain $k$ at time $
 
 Each chain is a Markov process with initial distribution $\pi_k$ and transition matrix $A_k$:
 
-$$p(x_k(t) \mid x_k(t-1)) = A_k[x_k(t-1),\, x_k(t)]$$
+$$p(x_k(t) \mid x_k(t-1)) = A_k[x_k(t-1), x_k(t)]$$
 
 The noise at time $t$ is Gaussian with variance that depends on all current hidden states:
 
-$$\varepsilon(t) \mid \mathbf{x}(t) \sim \mathcal{N}\!\left(0,\; \sum_k \sigma^2_k[x_k(t)]\right)$$
+$$\varepsilon(t) \mid \mathbf{x}(t) \sim \mathcal{N}\!\left(0, \sum_k \sigma^2_k[x_k(t)]\right)$$
 
 ---
 
@@ -44,15 +44,15 @@ The second variance term accounts for uncertainty about other chains' mean contr
 
 The forward and backward recursions (in log space) are:
 
-$$\log \alpha_c(t, j) = \log \mathcal{N}\!\left(y^{\mathrm{eff}}_c(t);\, \mu_c[j],\, \sigma^2_{\mathrm{eff},c}(t,j)\right) + \log \sum_i \alpha_c(t-1, i)\, A_c[i, j]$$
+$$\log \alpha_c(t, j) = \log \mathcal{N}\!\left(y^{\mathrm{eff}}_c(t); \mu_c[j], \sigma^2_{\mathrm{eff},c}(t,j)\right) + \log \sum_i \alpha_c(t-1, i)\, A_c[i, j]$$
 
-$$\log \beta_c(t, i) = \log \sum_j A_c[i, j]\, \mathcal{N}\!\left(y^{\mathrm{eff}}_c(t+1);\, \mu_c[j],\, \sigma^2_{\mathrm{eff},c}(t+1,j)\right)\, \beta_c(t+1, j)$$
+$$\log \beta_c(t, i) = \log \sum_j A_c[i, j]\, \mathcal{N}\!\left(y^{\mathrm{eff}}_c(t+1); \mu_c[j], \sigma^2_{\mathrm{eff},c}(t+1,j)\right)\, \beta_c(t+1, j)$$
 
 The one-slice and two-slice posterior marginals are:
 
 $$\gamma_c(t, s) = p(x_c(t) = s \mid \mathbf{y}) \propto \alpha_c(t, s)\, \beta_c(t, s)$$
 
-$$\xi_c(t, i, j) = p(x_c(t)=i,\, x_c(t+1)=j \mid \mathbf{y}) \propto \alpha_c(t,i)\, A_c[i,j]\, \mathcal{N}(\cdot)\, \beta_c(t+1,j)$$
+$$\xi_c(t, i, j) = p(x_c(t)=i, x_c(t+1)=j \mid \mathbf{y}) \propto \alpha_c(t,i)\, A_c[i,j]\, \mathcal{N}(\cdot)\, \beta_c(t+1,j)$$
 
 #### M-step: parameter updates
 
@@ -129,25 +129,25 @@ The sampler alternates five steps per iteration.
 
 **Step 1 — Sample $Z_{t,k}$.**  For each $(t, k)$, compute the IBP prior probability $p = m_{-t,k}/T$ and compare the marginal likelihoods under the two hypotheses:
 
-$$\log p(y(t) \mid Z_{t,k}=1) = \log \mathcal{N}\!\left(y(t);\; \tilde{\mu}^{-k}(t) + \mu_k[x_k(t)],\; \sigma^2_k[x_k(t)] + \tilde{\sigma}^2_{-k}(t)\right)$$
+$$\log p(y(t) \mid Z_{t,k}=1) = \log \mathcal{N}\!\left(y(t); \tilde{\mu}^{-k}(t) + \mu_k[x_k(t)], \sigma^2_k[x_k(t)] + \tilde{\sigma}^2_{-k}(t)\right)$$
 
-$$\log p(y(t) \mid Z_{t,k}=0) = \log \mathcal{N}\!\left(y(t);\; \tilde{\mu}^{-k}(t),\; \tilde{\sigma}^2_{-k}(t)\right)$$
+$$\log p(y(t) \mid Z_{t,k}=0) = \log \mathcal{N}\!\left(y(t); \tilde{\mu}^{-k}(t), \tilde{\sigma}^2_{-k}(t)\right)$$
 
 where $\tilde{\mu}^{-k}(t) = \sum_{j \neq k} Z_{t,j}\,\mu_j[x_j(t)]$ and $\tilde{\sigma}^2_{-k}(t) = \sum_{j \neq k} Z_{t,j}\,\sigma^2_j[x_j(t)]$ are the contributions from all other active chains.
 
 **Step 2 — Sample $x_k$ via FFBS.**  For each chain $k$, sample a complete state trajectory using Forward Filtering Backward Sampling. The emission log-likelihood at timestep $t$ is:
 
-$$\ell_k(t, s) = \begin{cases} \log \mathcal{N}\!\left(y(t) - \tilde{\mu}^{-k}(t);\; \mu_k[s],\; \sigma^2_k[s]\right) & \text{if } Z_{t,k} = 1 \\ 0 & \text{if } Z_{t,k} = 0 \end{cases}$$
+$$\ell_k(t, s) = \begin{cases} \log \mathcal{N}\!\left(y(t) - \tilde{\mu}^{-k}(t); \mu_k[s], \sigma^2_k[s]\right) & \text{if } Z_{t,k} = 1 \\ 0 & \text{if } Z_{t,k} = 0 \end{cases}$$
 
 The forward filter accumulates $\log \alpha_k(t, s)$ using the chain's transition matrix $A_k$, and the backward pass samples:
 
-$$x_k(t) \sim p(x_k(t) = s \mid x_k(t+1),\, \mathbf{y}_{1:t}) \propto A_k[s,\, x_k(t+1)]\, \alpha_k(t, s)$$
+$$x_k(t) \sim p(x_k(t) = s \mid x_k(t+1), \mathbf{y}_{1:t}) \propto A_k[s, x_k(t+1)]\, \alpha_k(t, s)$$
 
 **Step 3 — Update emission parameters.**  For each chain $k$ and state $s$, update by MLE on the residuals at timesteps where chain $k$ is active and in state $s$:
 
-$$\mu_k[s] \leftarrow \frac{\displaystyle\sum_{t:\, Z_{t,k}=1,\, x_k(t)=s} \bigl[y(t) - \tilde{\mu}^{-k}(t)\bigr]}{\displaystyle\sum_{t:\, Z_{t,k}=1,\, x_k(t)=s} 1}$$
+$$\mu_k[s] \leftarrow \frac{\displaystyle\sum_{t:\, Z_{t,k}=1, x_k(t)=s} \bigl[y(t) - \tilde{\mu}^{-k}(t)\bigr]}{\displaystyle\sum_{t:\, Z_{t,k}=1, x_k(t)=s} 1}$$
 
-$$\sigma^2_k[s] \leftarrow \frac{\displaystyle\sum_{t:\, Z_{t,k}=1,\, x_k(t)=s} \bigl[y(t) - \tilde{\mu}^{-k}(t) - \mu_k[s]\bigr]^2}{\displaystyle\sum_{t:\, Z_{t,k}=1,\, x_k(t)=s} 1}$$
+$$\sigma^2_k[s] \leftarrow \frac{\displaystyle\sum_{t:\, Z_{t,k}=1, x_k(t)=s} \bigl[y(t) - \tilde{\mu}^{-k}(t) - \mu_k[s]\bigr]^2}{\displaystyle\sum_{t:\, Z_{t,k}=1, x_k(t)=s} 1}$$
 
 **Step 4 — Prune.**  Remove any chain $k$ for which $\sum_t Z_{t,k} = 0$.
 
