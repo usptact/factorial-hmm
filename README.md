@@ -1,119 +1,159 @@
-# *WARNING*: This code has been generated using AI and likely contains bugs!
+# Factorial Hidden Markov Models
 
-# Factorial Hidden Markov Model (FHMM) Variants
-
-This project implements two approaches to Factorial Hidden Markov Models for modeling time series data as a sum of multiple independent Markov chains.
+Two implementations of Factorial Hidden Markov Models (FHMMs) for decomposing time series into contributions from multiple independent Markov chains.
 
 ## Overview
 
-Factorial HMMs decompose observed data into contributions from multiple parallel hidden Markov chains. At each time step, the observation is the sum of emissions from all active chains plus noise:
+A Factorial HMM models an observed sequence $y(1), \ldots, y(T)$ as the sum of emissions from $K$ parallel hidden Markov chains:
 
-```
-y(t) = Σ_k μ_k[x_k(t)] + ε(t)
-```
+$$y(t) = \sum_{k=1}^{K} \mu_k[x_k(t)] + \varepsilon(t)$$
 
+where $x_k(t) \in \{0, \ldots, S-1\}$ is the hidden state of chain $k$ at time $t$, $\mu_k[s]$ is the emission mean for chain $k$ in state $s$, and $\varepsilon(t)$ is Gaussian noise.
 
-where:
-- `y(t)` is the observation at time `t`
-- `x_k(t)` is the hidden state of chain `k` at time `t`
-- `μ_k[s]` is the emission mean for chain `k` in state `s`
-- `ε(t)` is Gaussian noise
+Each chain is a Markov process with initial distribution $\pi_k$ and transition matrix $A_k$:
 
-## Models
+$$p(x_k(t) \mid x_k(t-1)) = A_k[x_k(t-1),\, x_k(t)]$$
 
-### 1. Fixed Chains with Variational Inference (`FHMMVariational`)
+The noise at time $t$ is Gaussian with variance that depends on all current hidden states:
 
-A standard FHMM with a **fixed number of chains** using mean-field variational inference for approximate posterior estimation.
-
-**Features:**
-- Fixed number of chains specified at initialization
-- Each chain has fixed number of states
-- Efficient variational inference via forward-backward algorithm
-- Viterbi decoding for most likely state sequences
-
-### 2. Infinite Indian Buffet Process FHMM (`InfiniteFHMMGibbs`)
-
-A nonparametric Bayesian FHMM that **automatically infers the number of chains** from data using an Indian Buffet Process prior and Gibbs sampling.
-
-**Features:**
-- Automatically discovers number of chains
-- Binary indicator matrix `Z` determines which chains are active at each time
-- Gibbs sampling for full posterior inference
-- Can add new chains during inference
+$$\varepsilon(t) \mid \mathbf{x}(t) \sim \mathcal{N}\!\left(0,\; \sum_k \sigma^2_k[x_k(t)]\right)$$
 
 ---
 
-## Installation
+## Model 1 — Fixed Chains: Variational EM (`FHMMVariational`)
 
-Ensure you have the required packages:
-```shell script
-pip install numpy scipy tqdm
-```
+### Mathematics
 
+Exact posterior inference over all $K$ chains is intractable because the chains are coupled through the shared observation. The **mean-field** approximation factorises the posterior:
 
----
+$$q(\mathbf{x}) = \prod_{k=1}^{K} q_k(x_k)$$
 
-## Usage
+Inference alternates between an E-step (updating each $q_k$) and an M-step (updating parameters).
 
-### 1. Fixed Chains FHMM (Variational Inference)
+#### E-step: coordinate-ascent forward-backward
 
-#### Generate Synthetic Data
+For chain $c$, the coordinate-ascent update runs the standard HMM forward-backward algorithm on an **effective observation** that subtracts the posterior-expected contributions of all other chains:
+
+$$y^{\mathrm{eff}}_c(t) = y(t) - \sum_{d \neq c} \underbrace{\mathbb{E}_{q_d}[\mu_d(x_d(t))]}_{\mathbf{q}_d(t)^\top \boldsymbol{\mu}_d}$$
+
+The effective emission variance for chain $c$ in state $s$ is:
+
+$$\sigma^2_{\mathrm{eff},c}(t, s) = \sigma^2_c[s] + \sum_{d \neq c} \Bigl(\underbrace{\mathbb{E}_{q_d}[\sigma^2_d(x_d(t))]}_{\mathbf{q}_d(t)^\top \boldsymbol{\sigma}^2_d} + \underbrace{\operatorname{Var}_{q_d}[\mu_d(x_d(t))]}_{\mathbf{q}_d(t)^\top \boldsymbol{\mu}_d^{\circ 2} - (\mathbf{q}_d(t)^\top \boldsymbol{\mu}_d)^2}\Bigr)$$
+
+The second variance term accounts for uncertainty about other chains' mean contributions; omitting it would make the effective likelihood overconfident.
+
+The forward and backward recursions (in log space) are:
+
+$$\log \alpha_c(t, j) = \log \mathcal{N}\!\left(y^{\mathrm{eff}}_c(t);\, \mu_c[j],\, \sigma^2_{\mathrm{eff},c}(t,j)\right) + \log \sum_i \alpha_c(t-1, i)\, A_c[i, j]$$
+
+$$\log \beta_c(t, i) = \log \sum_j A_c[i, j]\, \mathcal{N}\!\left(y^{\mathrm{eff}}_c(t+1);\, \mu_c[j],\, \sigma^2_{\mathrm{eff},c}(t+1,j)\right)\, \beta_c(t+1, j)$$
+
+The one-slice and two-slice posterior marginals are:
+
+$$\gamma_c(t, s) = p(x_c(t) = s \mid \mathbf{y}) \propto \alpha_c(t, s)\, \beta_c(t, s)$$
+
+$$\xi_c(t, i, j) = p(x_c(t)=i,\, x_c(t+1)=j \mid \mathbf{y}) \propto \alpha_c(t,i)\, A_c[i,j]\, \mathcal{N}(\cdot)\, \beta_c(t+1,j)$$
+
+#### M-step: parameter updates
+
+All chains are updated simultaneously using residuals computed from the pre-update parameters. Let $r_c(t) = y(t) - \sum_{d \neq c} \mathbf{q}_d(t)^\top \boldsymbol{\mu}_d$ be the residual for chain $c$. Then:
+
+$$\mu_c[s] \leftarrow \frac{\sum_t \gamma_c(t,s)\, r_c(t)}{\sum_t \gamma_c(t,s)}, \qquad \sigma^2_c[s] \leftarrow \frac{\sum_t \gamma_c(t,s)\,(r_c(t) - \mu_c[s])^2}{\sum_t \gamma_c(t,s)}$$
+
+$$A_c[i,j] \leftarrow \frac{\sum_t \xi_c(t,i,j)}{\sum_j \sum_t \xi_c(t,i,j)}, \qquad \pi_c \leftarrow \gamma_c(0, :)$$
+
+### Usage
 
 ```python
 import numpy as np
 from FHMMVariational import FHMMVariational
 
 np.random.seed(42)
-
-# Initialize model with 3 chains, 2 states per chain
 fhmm = FHMMVariational(n_chains=3, n_states=2)
 
-# Generate synthetic data
-T = 100  # time steps
-hidden = np.zeros((T, 3), dtype=int)
+# Generate synthetic data from the model's initial parameters
+T = 200
 obs = np.zeros(T)
-
+hidden = np.zeros((T, 3), dtype=int)
 for c in range(3):
     z = np.zeros(T, dtype=int)
-    # Simple sticky HMM: tend to stay in same state
-    z[0] = np.random.choice(2, p=[0.05, 0.95])
+    z[0] = np.random.choice(2)
     for t in range(1, T):
-        z[t] = np.random.choice(2, p=[0.9 if z[t-1]==0 else 0.1, 
+        z[t] = np.random.choice(2, p=[0.9 if z[t-1]==0 else 0.1,
                                        0.1 if z[t-1]==0 else 0.9])
     hidden[:, c] = z
-    # Add contribution from this chain
     obs += fhmm.means[c][z] + np.random.normal(0, np.sqrt(fhmm.vars[c][z]))
-```
 
+# Run variational EM
+posterior, viterbi_paths = fhmm.variational_inference(obs, n_iter=200)
 
-#### Run Inference
-
-```python
-# Perform variational inference
-posterior, viterbi_paths = fhmm.variational_inference(obs, n_iter=100)
-
-# View results
-print("True hidden states:\n", hidden)
+# posterior[c]       — (T, n_states) array of marginal probabilities for chain c
+# viterbi_paths[c]   — (T,) most-likely state sequence for chain c
+# fhmm.means[c]      — learned emission means for chain c
+# fhmm.A[c]          — learned transition matrix for chain c
 
 for c in range(3):
-    print(f"\nChain {c}:")
-    print(f"  Learned means: {fhmm.means[c]}")
-    print(f"  Learned variances: {fhmm.vars[c]}")
-    print(f"  Viterbi path: {viterbi_paths[c]}")
-    print(f"  Posterior (first 5 steps):\n{posterior[c][:5]}")
+    print(f"Chain {c}: means={fhmm.means[c].round(3)}, "
+          f"Viterbi[:5]={viterbi_paths[c][:5]}")
 ```
 
+**Parameters**
 
-**Output:**
-- `posterior`: List of posterior probability matrices for each chain (shape: `[T, n_states]`)
-- `viterbi_paths`: Most likely state sequence for each chain
-- Model parameters are updated during inference
+| Parameter | Description |
+|-----------|-------------|
+| `n_chains` | Number of parallel Markov chains $K$ |
+| `n_states` | Number of states per chain $S$ |
+| `n_iter` | Number of variational EM iterations |
 
 ---
 
-### 2. Infinite FHMM (Gibbs Sampling)
+## Model 2 — Infinite Chains: IBP-FHMM with Gibbs Sampling (`InfiniteFHMMGibbs`)
 
-#### Generate Synthetic Data
+### Mathematics
+
+This model does not fix $K$ in advance. Instead, a binary **activity matrix** $Z \in \{0,1\}^{T \times K}$ indicates whether chain $k$ is active at time $t$, and the observation model becomes:
+
+$$y(t) = \sum_{k=1}^{K} Z_{t,k}\, \mu_k[x_k(t)] + \varepsilon(t)$$
+
+#### Indian Buffet Process prior
+
+The activity matrix is given an IBP-inspired prior. For each chain $k$ and timestep $t$, conditioned on all other entries in column $k$:
+
+$$p(Z_{t,k} = 1 \mid Z_{-t,k}) = \frac{m_{-t,k}}{T}, \qquad m_{-t,k} = \sum_{t' \neq t} Z_{t',k}$$
+
+New chains are proposed each iteration by drawing $m_{\mathrm{new}} \sim \mathrm{Poisson}(\alpha / T)$ and appending them with $Z_{:,k_{\mathrm{new}}} = \mathbf{1}$.
+
+#### Gibbs sampling
+
+The sampler alternates five steps per iteration.
+
+**Step 1 — Sample $Z_{t,k}$.**  For each $(t, k)$, compute the IBP prior probability $p = m_{-t,k}/T$ and compare the marginal likelihoods under the two hypotheses:
+
+$$\log p(y(t) \mid Z_{t,k}=1) = \log \mathcal{N}\!\left(y(t);\; \tilde{\mu}^{-k}(t) + \mu_k[x_k(t)],\; \sigma^2_k[x_k(t)] + \tilde{\sigma}^2_{-k}(t)\right)$$
+
+$$\log p(y(t) \mid Z_{t,k}=0) = \log \mathcal{N}\!\left(y(t);\; \tilde{\mu}^{-k}(t),\; \tilde{\sigma}^2_{-k}(t)\right)$$
+
+where $\tilde{\mu}^{-k}(t) = \sum_{j \neq k} Z_{t,j}\,\mu_j[x_j(t)]$ and $\tilde{\sigma}^2_{-k}(t) = \sum_{j \neq k} Z_{t,j}\,\sigma^2_j[x_j(t)]$ are the contributions from all other active chains.
+
+**Step 2 — Sample $x_k$ via FFBS.**  For each chain $k$, sample a complete state trajectory using Forward Filtering Backward Sampling. The emission log-likelihood at timestep $t$ is:
+
+$$\ell_k(t, s) = \begin{cases} \log \mathcal{N}\!\left(y(t) - \tilde{\mu}^{-k}(t);\; \mu_k[s],\; \sigma^2_k[s]\right) & \text{if } Z_{t,k} = 1 \\ 0 & \text{if } Z_{t,k} = 0 \end{cases}$$
+
+The forward filter accumulates $\log \alpha_k(t, s)$ using the chain's transition matrix $A_k$, and the backward pass samples:
+
+$$x_k(t) \sim p(x_k(t) = s \mid x_k(t+1),\, \mathbf{y}_{1:t}) \propto A_k[s,\, x_k(t+1)]\, \alpha_k(t, s)$$
+
+**Step 3 — Update emission parameters.**  For each chain $k$ and state $s$, update by MLE on the residuals at timesteps where chain $k$ is active and in state $s$:
+
+$$\mu_k[s] \leftarrow \operatorname{mean}_{t:\, Z_{t,k}=1,\, x_k(t)=s}\!\left[y(t) - \tilde{\mu}^{-k}(t)\right]$$
+
+$$\sigma^2_k[s] \leftarrow \operatorname{var}_{t:\, Z_{t,k}=1,\, x_k(t)=s}\!\left[y(t) - \tilde{\mu}^{-k}(t)\right]$$
+
+**Step 4 — Prune.**  Remove any chain $k$ for which $\sum_t Z_{t,k} = 0$.
+
+**Step 5 — Propose new chains.**  Draw $m_{\mathrm{new}} \sim \mathrm{Poisson}(\alpha/T)$ and add that many new chains, each initialised with $Z_{:,k} = \mathbf{1}$.
+
+### Usage
 
 ```python
 import numpy as np
@@ -121,84 +161,66 @@ from InfiniteFHMMGibbs import InfiniteFHMMGibbs
 
 np.random.seed(42)
 
-# Generate data from 3 unknown chains
+# Generate synthetic data from 3 unknown chains
 T = 500
-true_chains = 3
 obs = np.zeros(T)
-hidden_states = []
+for mu_low, mu_high in [(0.0, 2.0), (0.0, 1.5), (0.0, 1.0)]:
+    X = np.random.choice([0, 1], size=T, p=[0.5, 0.5])
+    obs += np.where(X == 0, mu_low, mu_high)
+    obs += np.random.normal(0, 0.2, T)
 
-for c in range(true_chains):
-    X = np.random.choice([0, 1], size=T)
-    mu = np.array([0.0, 1.5])  # state means
-    var = np.array([0.05, 0.2])  # state variances
-    obs += mu[X] + np.random.normal(0, np.sqrt(var[X]))
-    hidden_states.append(X)
+# Initialise and run the sampler
+iFHMM = InfiniteFHMMGibbs(alpha=3.0, n_states=2)
+iFHMM.initialize(obs, max_initial_chains=4)
 
-hidden_states = np.array(hidden_states).T
+Z, X_samples, mus, vars_, viterbi_paths = iFHMM.gibbs_sample(obs, n_iter=200)
+
+# Z              — (T, K) binary activity matrix for the K discovered chains
+# X_samples[k]  — (T,) sampled state sequence for chain k
+# mus[k]        — (n_states,) learned emission means for chain k
+# vars_[k]      — (n_states,) learned emission variances for chain k
+# viterbi_paths[k] — (T,) most-likely state sequence for chain k
+
+print(f"Discovered {len(mus)} chains")
+for k, (mu, var) in enumerate(zip(mus, vars_)):
+    active_frac = Z[:, k].mean()
+    print(f"  Chain {k}: means={mu.round(3)}, active={active_frac:.2f}")
 ```
 
+**Parameters**
 
-#### Run Inference
-
-```python
-# Initialize with IBP prior
-iFHMM = InfiniteFHMMGibbs(alpha=2.0, n_states=2)
-iFHMM.initialize(obs, max_initial_chains=3)
-
-# Run Gibbs sampler
-Z, X_samples, mus, vars_, viterbi_paths = iFHMM.gibbs_sample(obs, n_iter=100)
-
-# View results
-print(f"Discovered {len(X_samples)} chains")
-print(f"Activity matrix Z shape: {Z.shape}")
-
-for k in range(len(X_samples)):
-    print(f"\nChain {k}:")
-    print(f"  Learned means: {mus[k]}")
-    print(f"  Learned variances: {vars_[k]}")
-    print(f"  Viterbi path: {viterbi_paths[k]}")
-    print(f"  Active timesteps: {np.sum(Z[:, k])}/{T}")
-```
-
-
-**Output:**
-- `Z`: Binary activity matrix (shape: `[T, K]`) indicating which chains are active
-- `X_samples`: Sampled state sequences for each chain
-- `mus`: Learned emission means for each chain
-- `vars_`: Learned emission variances for each chain
-- `viterbi_paths`: Most likely state sequences
+| Parameter | Description |
+|-----------|-------------|
+| `alpha` | IBP concentration — higher values encourage more chains |
+| `n_states` | Number of states per chain $S$ |
+| `max_initial_chains` | Starting number of chains before the sampler adapts |
+| `n_iter` | Number of Gibbs sampling iterations |
 
 ---
 
-## Key Differences
+## Comparison
 
-| Feature | Variational FHMM | Infinite FHMM |
-|---------|------------------|---------------|
-| **Number of chains** | Fixed | Inferred from data |
-| **Inference method** | Mean-field variational | Gibbs sampling |
-| **Computation** | Faster, approximate | Slower, full posterior |
-| **Chain activity** | All chains always active | Chains can be inactive (Z=0) |
-| **Prior** | None | Indian Buffet Process |
-| **Best for** | Known structure, speed | Discovery, flexibility |
+| | `FHMMVariational` | `InfiniteFHMMGibbs` |
+|---|---|---|
+| **Number of chains** | Fixed $K$ | Inferred from data |
+| **Inference** | Variational EM (ELBO maximisation) | Gibbs sampling (MCMC) |
+| **Hidden state sampling** | Forward-backward (soft, posterior marginals) | FFBS (hard sample per iteration) |
+| **Parameter learning** | M-step closed-form updates | MLE on active residuals |
+| **Chain activity** | All chains always active | Per-timestep binary $Z_{t,k}$ |
+| **Speed** | Fast | Slower, scales with $K \times T$ |
+| **Best for** | Known number of components, speed | Automatic discovery of $K$ |
 
 ---
 
-## Parameters
+## Installation
 
-### FHMMVariational
-- `n_chains`: Number of parallel chains (fixed)
-- `n_states`: Number of states per chain
-- `n_iter`: Number of variational inference iterations
-
-### InfiniteFHMMGibbs
-- `alpha`: IBP concentration parameter (controls number of chains)
-- `n_states`: Number of states per chain
-- `max_initial_chains`: Initial number of chains to start with
-- `n_iter`: Number of Gibbs sampling iterations
+```bash
+pip install numpy scipy tqdm
+```
 
 ---
 
 ## References
 
-- Ghahramani, Z., & Jordan, M. I. (1997). Factorial hidden Markov models. *Machine Learning*.
-- Griffiths, T. L., & Ghahramani, Z. (2011). The Indian buffet process: An introduction and review. *Journal of Machine Learning Research*.
+- Ghahramani, Z. & Jordan, M. I. (1997). Factorial hidden Markov models. *Machine Learning*, 29(2–3), 245–273.
+- Griffiths, T. L. & Ghahramani, Z. (2011). The Indian buffet process: An introduction and review. *Journal of Machine Learning Research*, 12, 1185–1224.
