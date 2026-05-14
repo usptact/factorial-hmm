@@ -38,7 +38,7 @@ $$y^{\mathrm{eff}}_c(t) = y(t) - \sum_{d \neq c} \underbrace{\mathbb{E}_{q_d}[\m
 
 The effective emission variance for chain $c$ in state $s$ is:
 
-$$\sigma^2_{\mathrm{eff},c}(t, s) = \sigma^2_c[s] + \sum_{d \neq c} \Bigl(\underbrace{\mathbb{E}_{q_d}[\sigma^2_d(x_d(t))]}_{\mathbf{q}_d(t)^\top \boldsymbol{\sigma}^2_d} + \underbrace{\operatorname{Var}_{q_d}[\mu_d(x_d(t))]}_{\mathbf{q}_d(t)^\top \boldsymbol{\mu}_d^{\circ 2} - (\mathbf{q}_d(t)^\top \boldsymbol{\mu}_d)^2}\Bigr)$$
+$$\sigma^2_{\mathrm{eff},c}(t, s) = \sigma^2_c[s] + \sum_{d \neq c} \Bigl(\underbrace{\mathbb{E}_{q_d}[\sigma^2_d(x_d(t))]}_{\mathbf{q}_d(t)^\top \boldsymbol{\sigma}^2_d} + \underbrace{\mathrm{Var}_{q_d}[\mu_d(x_d(t))]}_{\mathbf{q}_d(t)^\top \boldsymbol{\mu}_d^{\circ 2} - (\mathbf{q}_d(t)^\top \boldsymbol{\mu}_d)^2}\Bigr)$$
 
 The second variance term accounts for uncertainty about other chains' mean contributions; omitting it would make the effective likelihood overconfident.
 
@@ -145,9 +145,9 @@ $$x_k(t) \sim p(x_k(t) = s \mid x_k(t+1),\, \mathbf{y}_{1:t}) \propto A_k[s,\, x
 
 **Step 3 — Update emission parameters.**  For each chain $k$ and state $s$, update by MLE on the residuals at timesteps where chain $k$ is active and in state $s$:
 
-$$\mu_k[s] \leftarrow \operatorname{mean}_{t:\, Z_{t,k}=1,\, x_k(t)=s}\!\left[y(t) - \tilde{\mu}^{-k}(t)\right]$$
+$$\mu_k[s] \leftarrow \frac{\displaystyle\sum_{t:\, Z_{t,k}=1,\, x_k(t)=s} \bigl[y(t) - \tilde{\mu}^{-k}(t)\bigr]}{\displaystyle\sum_{t:\, Z_{t,k}=1,\, x_k(t)=s} 1}$$
 
-$$\sigma^2_k[s] \leftarrow \operatorname{var}_{t:\, Z_{t,k}=1,\, x_k(t)=s}\!\left[y(t) - \tilde{\mu}^{-k}(t)\right]$$
+$$\sigma^2_k[s] \leftarrow \frac{\displaystyle\sum_{t:\, Z_{t,k}=1,\, x_k(t)=s} \bigl[y(t) - \tilde{\mu}^{-k}(t) - \mu_k[s]\bigr]^2}{\displaystyle\sum_{t:\, Z_{t,k}=1,\, x_k(t)=s} 1}$$
 
 **Step 4 — Prune.**  Remove any chain $k$ for which $\sum_t Z_{t,k} = 0$.
 
